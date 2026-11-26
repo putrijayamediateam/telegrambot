@@ -300,7 +300,7 @@ t.ctx.pasangPemasa(); assert.strictEqual(t.trig.length, 1);
 // ===== ALIRAN BUTANG PENUH (tanpa menaip nama/nombor) =====
 t = mk(); t.ctx.NOW_OVERRIDE = MY(14, 40);
 t.cbq(CH, 'm:terima', 1); let bm = 5000 + t.sent.length;
-t.cbq(CH, btn('HQ'), bm); t.post(CH, 'INV-5'); t.post(CH, '', { photo: [{ file_id: 'z' }] });
+t.cbq(CH, btn('HQ'), bm); t.cbq(CH, btn('Ikut gambar'), bm); t.post(CH, '', { photo: [{ file_id: 'z' }] });
 t.cbq(CH, btn('Seterusnya'), bm); t.cbq(CH, btn('TALLY (semua'), bm);
 t.cbq(CH, btn('Tambah ubat'), bm);
 assert(/jenis ubat/i.test(wiz().p.text) && /TABLET/.test(JSON.stringify(wiz().p.reply_markup)), wiz().p.text);

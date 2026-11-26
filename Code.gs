@@ -685,7 +685,8 @@ function view_(s, ctx) {
       rows.push([B_('🏭 Supplier baru (taip nama)', 'w:dari:S')]); break;
     }
     case 'supplier': ask = '<b>Taip nama supplier</b> (cth: Pharmaniaga) dan hantar sebagai mesej biasa.'; break;
-    case 'dok': ask = '<b>Taip nombor invois / PO / DO</b> seperti di atas dokumen.'; break;
+    case 'dok': ask = '<b>Nombor invois / PO / DO</b>\nTak perlu taip: nombor akan dibaca daripada gambar yang anda hantar nanti. Tekan butang di bawah.'; rows.push([B_('📷 Ikut gambar (tak perlu taip)', 'w:dk')], [B_('⌨️ Saya nak taip nombor', 'w:dkt')]); break;
+    case 'dokt': ask = '<b>Taip nombor invois / PO / DO</b> dan hantar.'; break;
     case 'foto': ask = '<b>Hantar GAMBAR</b> invois/PO/DO (boleh beberapa keping). Pastikan nombor dokumen nampak jelas.' + (d.photos.length ? '\n✅ ' + d.photos.length + ' gambar diterima. Tekan Seterusnya bila siap.' : '');
       if (d.photos.length) rows.push([B_('➡️ Seterusnya', 'w:fnext')]); break;
     case 'status': ask = '<b>Semakan: kuantiti fizikal sama dengan invois, dan semua item betul?</b>';
@@ -783,6 +784,8 @@ function onWiz_(ctx, cb, p) {
   ans_(cb);
   switch (act) {
     case 'dari': if (arg === 'S') s.step = 'supplier'; else { s.d.dari = s.opts[Number(arg)]; s.step = 'dok'; } break;
+    case 'dk': s.d.dok = 'Ikut gambar'; s.step = 'foto'; break;
+    case 'dkt': s.step = 'dokt'; break;
     case 'fnext': if (!s.d.photos.length) { s.err = 'Hantar sekurang-kurangnya satu gambar.'; break; } s.step = s.t === 'adjust' ? 'pem' : 'status'; break;
     case 'st': s.d.status = arg === 'N' ? 'NOT TALLY' : 'TALLY'; s.step = 'imenu'; break;
     case 'iadd': s.pg = 0; s.grp = null; s.cats2 = null; s.step = 'icat'; break;
@@ -825,7 +828,7 @@ function onText_(ctx, text, s) {
   if (s.d) s.d.buf = '';
   switch (s.step) {
     case 'supplier': s.d.dari = t; s.step = 'dok'; break;
-    case 'dok': s.d.dok = t; s.step = 'foto'; break;
+    case 'dok': case 'dokt': s.d.dok = t; s.step = 'foto'; break;
     case 'icat': case 'igrp': case 'ipick': case 'iname': {
       s.grp = null; s.pg = 0;
       const c = searchUbat_(t, 6);
