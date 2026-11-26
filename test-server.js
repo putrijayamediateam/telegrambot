@@ -334,6 +334,21 @@ t.cbq(CH, 'w:k:9', pm); t.cbq(CH, 'w:k:5', pm); t.cbq(CH, 'w:k:ok', pm);
 t.cbq(CH, 'w:k:0', pm); t.cbq(CH, 'w:k:ok', pm);
 assert(/Checked by/.test(wiz().p.text) && /Dikira: 2 daripada 2/.test(wiz().p.text), wiz().p.text);
 
+// ===== SEMAK STOK dan ADJUST melalui butang; supplier dari tab Pembekal =====
+t = mk(); t.sheets.Pembekal = [['Nama'], ['Pharmaniaga'], ['Hi-Care']];
+t.cbq(CH, 'm:stok', 1); let sm2 = 5000 + t.sent.length;
+assert(/jenis ubat/i.test(last()), last());
+t.cbq(CH, btn('TABLET'), sm2); t.cbq(CH, btn('X'), sm2); t.cbq(CH, btn('Paracetamol Tab 500Mg'), sm2);
+assert(/Paracetamol Tab 500Mg/.test(last()) && /Cheras/.test(last()), last());
+t.cbq(CH, 'm:adjust', 1); let am = 5000 + t.sent.length;
+t.cbq(CH, btn('TABLET'), am); t.cbq(CH, btn('X'), am); t.cbq(CH, btn('Paracetamol Tab 500Mg'), am);
+assert(/Laras stok/.test(wiz().p.text), wiz().p.text);
+t.cbq(CH, 'w:k:5', am); t.cbq(CH, 'w:k:ok', am);
+assert(/Sebab adjustment/.test(wiz().p.text) && /\(-5\)/.test(wiz().p.text), wiz().p.text);
+t.cbq(CH, 'w:cancel', am);
+t.cbq(CH, 'm:terima', 1); let tm = 5000 + t.sent.length;
+assert(/Pharmaniaga/.test(JSON.stringify(t.sent[t.sent.length - 1].reply_markup)), 'supplier dari tab Pembekal');
+
 // tiada fast moving -> mesej
 t = mk(); t.sheets.Ubat.slice(1).forEach(r => r[3] = '');
 t.post(CH, '/harian'); assert(/Belum ada item fast moving/.test(last()), last());

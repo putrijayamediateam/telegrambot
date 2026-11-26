@@ -14,6 +14,7 @@ const HEAD = {
   Gambar: ['Masa', 'Mesej', 'Album', 'Akaun', 'Pautan', 'Rekod'],
   Staf: ['Cawangan', 'Nama'],
   Jadual: ['Cawangan', 'Hari', 'Tamat shift', 'Kiraan sebelum (min)'],
+  Pembekal: ['Nama'],
   Pergerakan: ['Masa', 'Cawangan', 'Ubat', 'Jenis', 'Perubahan', 'Sebelum', 'Selepas', 'Rekod', 'Pihak lain', 'Oleh']
 };
 const R = { ID: 0, MASA: 1, CAW: 2, JENIS: 3, STATUS: 4, DOK: 5, DARI: 6, PEM: 7, NOTA: 8, GAMBAR: 9, AKAUN: 10, MSG: 11, ALBUM: 12, RUJUK: 13 };
@@ -654,7 +655,7 @@ function startWizard_(ctx, flow) {
     if (!f.length) return say_(ctx.chat, 'Belum ada item fast moving. HQ tetapkan dahulu guna /fast nama ubat, atau tanda lajur Fast moving dalam tab Ubat.');
     return wShow_(ctx, { t: 'harian', step: 'hcount', d: { photos: [], items: [], fast: f, idx: 0, slot: slotLabel_(ctx.caw) }, cur: null, mid: null, opts: [], err: '' });
   }
-  const first = { terima: 'dari', stoktake: 'imenu', recount: 'rujuk', adjust: 'iname', stok: 'stoksearch', gerak: 'stoksearch' }[flow];
+  const first = { terima: 'dari', stoktake: 'imenu', recount: 'rujuk', adjust: 'icat', stok: 'icat', gerak: 'icat' }[flow];
   if (!first) return;
   wShow_(ctx, { t: flow, step: first, d: { photos: [], items: [] }, cur: null, mid: null, opts: [], err: '' });
 }
@@ -679,8 +680,11 @@ function view_(s, ctx) {
     case 'dari': {
       const br = ['HQ', 'Cheras', 'Puchong', 'Sungai Besi'].filter(x => x !== ctx.caw), sup = [];
       rows_(S.REKOD).slice().reverse().forEach(r => { const v = String(r[R.DARI] || '').trim(); if (v && r[R.JENIS] === 'Terima' && br.indexOf(v) < 0 && ['HQ', 'Cheras', 'Puchong', 'Sungai Besi'].indexOf(v) < 0 && sup.indexOf(v) < 0 && sup.length < 6) sup.push(v); });
+      let pb = []; try { pb = rows_('Pembekal').map(r => String(r[0] || '').trim()).filter(Boolean); } catch (e) {}
+      pb.slice().reverse().forEach(v => { if (sup.indexOf(v) < 0) sup.unshift(v); });
+      sup.splice(8);
       s.opts = br.concat(sup);
-      ask = '<b>Barang ini datang DARI mana?</b>' + (sup.length ? '\nSupplier terkini ada di bawah.' : '');
+      ask = '<b>Barang ini datang DARI mana?</b>' + (sup.length ? '\nPilih supplier di bawah.' : '');
       rows = pair_(s.opts.map((x, i) => B_(x, 'w:dari:' + i)));
       rows.push([B_('🏭 Supplier baru (taip nama)', 'w:dari:S')]); break;
     }
@@ -723,7 +727,7 @@ function view_(s, ctx) {
     case 'ibatch': ask = '<b>Nombor batch?</b> Taip, atau tekan Langkau.'; rows.push([B_('⏭ Langkau', 'w:bskip')]); break;
     case 'iexp': { const y = new Date().getFullYear(); ask = '<b>Tarikh luput: pilih tahun</b> (atau taip cth 05/27).'; rows.push([0, 1, 2, 3, 4, 5].map(i => B_(String(y + i), 'w:ey:' + (y + i)))); rows.push([B_('⏭ Langkau', 'w:eskip')]); break; }
     case 'iexm': { ask = '<b>Tarikh luput ' + s.cur.ey + ': pilih bulan</b>'; const M = ['Jan', 'Feb', 'Mac', 'Apr', 'Mei', 'Jun', 'Jul', 'Ogo', 'Sep', 'Okt', 'Nov', 'Dis']; for (let i = 0; i < 12; i += 4) rows.push(M.slice(i, i + 4).map((m, j) => B_(m, 'w:em:' + (i + j + 1)))); rows.push([B_('⬅ Tahun', 'w:ebk')]); break; }
-    case 'qty': ask = '<b>' + esc_(s.d.ubat) + '</b>\nBerapa laras? Taip <b>-5</b> (kurang) atau <b>+10</b> (tambah).'; break;
+    case 'qty': { const sg = d.sign || '-'; ask = '<b>' + esc_(s.d.ubat) + '</b>\nLaras stok: <b>' + sg + (d.buf || '_') + '</b>'; rows.push([B_((sg === '-' ? '● ' : '') + 'Kurang (−)', 'w:sg:-'), B_((sg === '+' ? '● ' : '') + 'Tambah (+)', 'w:sg:+')]); kpad_().forEach(r => rows.push(r)); break; }
     case 'sebab': ask = '<b>Sebab adjustment?</b>'; rows = SEBAB.map((x, i) => B_(x, 'w:sb:' + i)).reduce((a, b, i) => { if (i % 2 === 0) a.push([b]); else a[a.length - 1].push(b); return a; }, []); break;
     case 'rujuk': {
       const rc = rows_(S.REKOD).filter(r => r[R.CAW] === ctx.caw && r[R.JENIS] === 'Stok take' && r[R.STATUS] === WAIT).slice(-5);
@@ -768,8 +772,13 @@ function finishItem_(s) {
   s.d.items.push({ name: c.name, ref: c.ref == null ? c.act : c.ref, act: c.act, batch: c.batch || '', exp: c.exp || '' });
   s.step = 'imenu';
 }
+function lookup_(ctx, s) {
+  const nm = s.cur.name; wdel_(ctx.uid); if (s.mid) edit_(ctx.chat, s.mid, '🔎 Semakan ' + (s.t === 'gerak' ? 'pergerakan' : 'stok') + ': ' + esc_(nm));
+  return s.t === 'gerak' ? cmdGerak_(ctx, nm) : cmdStok_(ctx, nm);
+}
 function pickUbat_(s, name) {
   s.cur = { name: name };
+  if (s.t === 'stok' || s.t === 'gerak') { s.step = 'lookup'; return; }
   if (s.t === 'adjust') { s.d.ubat = name; s.step = 'qty'; }
   else if (s.t === 'terima' && s.d.status === 'NOT TALLY') s.step = 'iref';
   else s.step = 'iact';
@@ -795,11 +804,13 @@ function onWiz_(ctx, cb, p) {
     case 'grp': s.grp = s.opts[Number(arg)]; s.opts = itemsIn_(s.cat, s.grp); s.pg = 0; s.step = 'ipick'; break;
     case 'igrpb': s.grp = null; s.pg = 0; s.step = 'igrp'; break;
     case 'pg': s.pg = Number(arg) || 0; break;
+    case 'sg': s.d.sign = arg; break;
     case 'k': {
       if (arg === 'b') s.d.buf = String(s.d.buf || '').slice(0, -1);
       else if (arg === 'ok') {
-        const b = String(s.d.buf || ''); s.d.buf = '';
+        let b = String(s.d.buf || ''); s.d.buf = '';
         if (!b) { s.err = 'Tekan nombor dahulu.'; break; }
+        if (s.step === 'qty') b = (s.d.sign || '-') + b;
         return onText_(ctx, b, s);
       } else if (String(s.d.buf || '').length < 5) s.d.buf = String(s.d.buf || '') + arg;
       break;
@@ -821,6 +832,7 @@ function onWiz_(ctx, cb, p) {
     case 'hdone': if (!s.d.items.length) { s.err = 'Kira sekurang-kurangnya satu item dahulu.'; break; } s.step = 'pem'; break;
   }
   if (s.step === 'imenu' && s.t === 'terima' && !s.d.status) s.step = 'status';
+  if (s.step === 'lookup') return lookup_(ctx, s);
   wShow_(ctx, s);
 }
 function onText_(ctx, text, s) {
@@ -859,6 +871,7 @@ function onText_(ctx, text, s) {
     case 'stoksearch': wdel_(ctx.uid); if (s.mid) edit_(ctx.chat, s.mid, '🔎 Semakan stok'); return s.t === 'gerak' ? cmdGerak_(ctx, t) : cmdStok_(ctx, t);
     default: return;
   }
+  if (s.step === 'lookup') return lookup_(ctx, s);
   wShow_(ctx, s);
 }
 function wSubmit_(ctx, cb, s) {
