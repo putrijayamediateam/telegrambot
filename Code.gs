@@ -18,6 +18,8 @@ const HEAD = {
 };
 const R = { ID: 0, MASA: 1, CAW: 2, JENIS: 3, STATUS: 4, DOK: 5, DARI: 6, PEM: 7, NOTA: 8, GAMBAR: 9, AKAUN: 10, MSG: 11, ALBUM: 12, RUJUK: 13 };
 const WAIT = 'MENUNGGU HQ';
+const SHOW_SYS = false; // true = tunjuk stok sistem & butang Tally (lebih laju, tetapi bukan kiraan buta)
+const PG = 8;
 
 /* ---------- pintu masuk webhook ---------- */
 function doPost(e) {
@@ -627,6 +629,25 @@ function searchUbat_(q, max) {
   const toks = nq.split(' ');
   return names.filter(n => { const nn = norm_(n); return toks.every(t => nn.includes(t)); }).slice(0, max || 6);
 }
+function cats_() { const o = []; rows_(S.UBAT).forEach(r => { const c = String(r[1] || 'LAIN'); if (r[0] && o.indexOf(c) < 0) o.push(c); }); return o; }
+function grps_(cat) { const o = []; rows_(S.UBAT).forEach(r => { if (r[0] && String(r[1] || 'LAIN') === cat) { const g = String(r[2] || 'LAIN'); if (o.indexOf(g) < 0) o.push(g); } }); return o; }
+function itemsIn_(cat, grp) { return rows_(S.UBAT).filter(r => r[0] && String(r[1] || 'LAIN') === cat && String(r[2] || 'LAIN') === grp).map(r => String(r[0])); }
+function pair_(btns) { return btns.reduce((a, b, i) => { if (i % 2 === 0) a.push([b]); else a[a.length - 1].push(b); return a; }, []); }
+function pager_(s, n) {
+  const tot = Math.ceil(n / PG); if (tot <= 1) return [];
+  const p = s.pg || 0;
+  return [[B_(p > 0 ? '◀ Sebelum' : '·', p > 0 ? 'w:pg:' + (p - 1) : 'w:noop'), B_((p + 1) + ' / ' + tot, 'w:noop'), B_(p < tot - 1 ? 'Seterusnya ▶' : '·', p < tot - 1 ? 'w:pg:' + (p + 1) : 'w:noop')]];
+}
+function kpad_() {
+  const k = d => B_(String(d), 'w:k:' + d);
+  return [[k(1), k(2), k(3)], [k(4), k(5), k(6)], [k(7), k(8), k(9)], [B_('⌫', 'w:k:b'), k(0), B_('✔ Sahkan', 'w:k:ok')]];
+}
+function setExp_(s, t) {
+  const d = parseExp_(t), today = new Date(); today.setHours(0, 0, 0, 0);
+  if (d === undefined) { s.err = 'Format tarikh tidak sah. Guna 2027-05 atau 05/27.'; return; }
+  if (d < today) { s.err = esc_(s.cur.name) + ' sudah LUPUT (' + fmtD_(d) + '). Asingkan, jangan terima. Item tidak dimasukkan.'; s.cur = null; s.step = 'imenu'; return; }
+  s.cur.exp = t; finishItem_(s);
+}
 function startWizard_(ctx, flow) {
   if (flow === 'harian') {
     const f = fastNames_();
@@ -656,10 +677,12 @@ function view_(s, ctx) {
   let ask = '', rows = [];
   switch (s.step) {
     case 'dari': {
-      s.opts = ['HQ', 'Cheras', 'Puchong', 'Sungai Besi'].filter(x => x !== ctx.caw);
-      ask = '<b>Barang ini datang DARI mana?</b>';
-      rows = s.opts.map((x, i) => B_(x, 'w:dari:' + i)).reduce((a, b, i) => { if (i % 2 === 0) a.push([b]); else a[a.length - 1].push(b); return a; }, []);
-      rows.push([B_('🏭 Supplier (taip nama)', 'w:dari:S')]); break;
+      const br = ['HQ', 'Cheras', 'Puchong', 'Sungai Besi'].filter(x => x !== ctx.caw), sup = [];
+      rows_(S.REKOD).slice().reverse().forEach(r => { const v = String(r[R.DARI] || '').trim(); if (v && r[R.JENIS] === 'Terima' && br.indexOf(v) < 0 && ['HQ', 'Cheras', 'Puchong', 'Sungai Besi'].indexOf(v) < 0 && sup.indexOf(v) < 0 && sup.length < 6) sup.push(v); });
+      s.opts = br.concat(sup);
+      ask = '<b>Barang ini datang DARI mana?</b>' + (sup.length ? '\nSupplier terkini ada di bawah.' : '');
+      rows = pair_(s.opts.map((x, i) => B_(x, 'w:dari:' + i)));
+      rows.push([B_('🏭 Supplier baru (taip nama)', 'w:dari:S')]); break;
     }
     case 'supplier': ask = '<b>Taip nama supplier</b> (cth: Pharmaniaga) dan hantar sebagai mesej biasa.'; break;
     case 'dok': ask = '<b>Taip nombor invois / PO / DO</b> seperti di atas dokumen.'; break;
@@ -677,14 +700,28 @@ function view_(s, ctx) {
       else if (s.t === 'terima' && d.status === 'TALLY') rows.push([B_('⏭ Langkau, tiada senarai', 'w:idone')]);
       break;
     }
+    case 'icat': s.opts = cats_(); ask = '<b>Pilih jenis ubat</b>'; rows = pair_(s.opts.map((x, i) => B_(x, 'w:cat:' + i))); rows.push([B_('🔍 Taip nama ubat', 'w:again')]); break;
+    case 'igrp': {
+      const all = s.cats2 || (s.cats2 = grps_(s.cat)); s.opts = all;
+      const p = s.pg || 0, sl = all.slice(p * PG, p * PG + PG);
+      ask = '<b>' + esc_(s.cat) + '</b>: pilih kumpulan';
+      rows = sl.map((x, i) => [B_(x.length > 50 ? x.slice(0, 48) + '…' : x, 'w:grp:' + (p * PG + i))]);
+      pager_(s, all.length).forEach(r => rows.push(r));
+      rows.push([B_('⬅ Jenis', 'w:iadd'), B_('🔍 Taip nama', 'w:again')]); break;
+    }
     case 'iname': ask = '<b>Taip nama ubat</b> (cth: paracetamol 500). Bot akan cadangkan padanan.'; break;
-    case 'ipick': ask = '<b>Pilih ubat yang betul:</b>';
-      rows = s.opts.map((x, i) => [B_(x.length > 60 ? x.slice(0, 58) + '…' : x, 'w:pk:' + i)]);
-      rows.push([B_('🔍 Cari semula', 'w:again')]); break;
-    case 'iref': ask = '<b>' + esc_(s.cur.name) + '</b>\nKuantiti pada <b>INVOIS</b>? (taip nombor)'; break;
-    case 'iact': ask = '<b>' + esc_(s.cur.name) + '</b>\n' + (s.t === 'terima' ? 'Kuantiti <b>FIZIKAL</b> diterima? (taip nombor)' : 'Kiraan di rak? (taip nombor)'); break;
+    case 'ipick': {
+      const p = s.pg || 0, sl = s.opts.slice(p * PG, p * PG + PG);
+      ask = '<b>Pilih ubat' + (s.grp ? ' (' + esc_(s.grp) + ')' : ' yang betul') + ':</b>';
+      rows = sl.map((x, i) => [B_(x.length > 60 ? x.slice(0, 58) + '…' : x, 'w:pk:' + (p * PG + i))]);
+      pager_(s, s.opts.length).forEach(r => rows.push(r));
+      rows.push([B_(s.grp ? '⬅ Kumpulan' : '⬅ Jenis', s.grp ? 'w:igrpb' : 'w:iadd'), B_('🔍 Taip nama', 'w:again')]); break;
+    }
+    case 'iref': ask = '<b>' + esc_(s.cur.name) + '</b>\nKuantiti pada <b>INVOIS</b>: <b>' + (d.buf || '_') + '</b>'; rows = kpad_(); break;
+    case 'iact': ask = '<b>' + esc_(s.cur.name) + '</b>\n' + (s.t === 'terima' ? 'Kuantiti <b>FIZIKAL</b> diterima' : 'Kiraan di rak') + ': <b>' + (d.buf || '_') + '</b>'; rows = kpad_(); break;
     case 'ibatch': ask = '<b>Nombor batch?</b> Taip, atau tekan Langkau.'; rows.push([B_('⏭ Langkau', 'w:bskip')]); break;
-    case 'iexp': ask = '<b>Tarikh luput?</b> Cth 2027-05 atau 05/27. Taip, atau tekan Langkau.'; rows.push([B_('⏭ Langkau', 'w:eskip')]); break;
+    case 'iexp': { const y = new Date().getFullYear(); ask = '<b>Tarikh luput: pilih tahun</b> (atau taip cth 05/27).'; rows.push([0, 1, 2, 3, 4, 5].map(i => B_(String(y + i), 'w:ey:' + (y + i)))); rows.push([B_('⏭ Langkau', 'w:eskip')]); break; }
+    case 'iexm': { ask = '<b>Tarikh luput ' + s.cur.ey + ': pilih bulan</b>'; const M = ['Jan', 'Feb', 'Mac', 'Apr', 'Mei', 'Jun', 'Jul', 'Ogo', 'Sep', 'Okt', 'Nov', 'Dis']; for (let i = 0; i < 12; i += 4) rows.push(M.slice(i, i + 4).map((m, j) => B_(m, 'w:em:' + (i + j + 1)))); rows.push([B_('⬅ Tahun', 'w:ebk')]); break; }
     case 'qty': ask = '<b>' + esc_(s.d.ubat) + '</b>\nBerapa laras? Taip <b>-5</b> (kurang) atau <b>+10</b> (tambah).'; break;
     case 'sebab': ask = '<b>Sebab adjustment?</b>'; rows = SEBAB.map((x, i) => B_(x, 'w:sb:' + i)).reduce((a, b, i) => { if (i % 2 === 0) a.push([b]); else a[a.length - 1].push(b); return a; }, []); break;
     case 'rujuk': {
@@ -703,8 +740,11 @@ function view_(s, ctx) {
     case 'confirm': ask = '<b>Semak maklumat di atas.</b> Tekan Hantar jika betul.'; rows.push([B_('✅ Hantar', 'w:ok')]); break;
     case 'hcount': {
       const nm = d.fast[d.idx];
-      ask = '<b>Item ' + (d.idx + 1) + ' / ' + d.fast.length + '</b>\n<b>' + esc_(nm) + '</b>\nBerapa <b>kiraan di rak</b> sekarang? Taip nombor (0 jika kosong).';
-      rows.push([B_('⏭ Langkau item ini', 'w:hskip'), B_('✔ Siap, hantar', 'w:hdone')]); break;
+      const sys = SHOW_SYS ? getStok_(ctx.caw, nm) : null;
+      ask = '<b>Item ' + (d.idx + 1) + ' / ' + d.fast.length + '</b>\n<b>' + esc_(nm) + '</b>' + (SHOW_SYS ? '\nSistem: ' + sys : '') + '\nKiraan di rak: <b>' + (d.buf || '_') + '</b> (tekan nombor, kosong = 0 tekan 0)';
+      if (SHOW_SYS) rows.push([B_('✔ Tally, ' + sys, 'w:ht')]);
+      kpad_().forEach(r => rows.push(r));
+      rows.push([B_('⬅ Balik', 'w:hback'), B_('⏭ Langkau', 'w:hskip'), B_('✔ Siap, hantar', 'w:hdone')]); break;
     }
     case 'stoksearch': ask = '<b>Taip nama ubat</b> untuk ' + (s.t === 'gerak' ? 'lihat pergerakan stok' : 'semak stok') + ' (cth: paracetamol 500).'; break;
   }
@@ -745,7 +785,27 @@ function onWiz_(ctx, cb, p) {
     case 'dari': if (arg === 'S') s.step = 'supplier'; else { s.d.dari = s.opts[Number(arg)]; s.step = 'dok'; } break;
     case 'fnext': if (!s.d.photos.length) { s.err = 'Hantar sekurang-kurangnya satu gambar.'; break; } s.step = s.t === 'adjust' ? 'pem' : 'status'; break;
     case 'st': s.d.status = arg === 'N' ? 'NOT TALLY' : 'TALLY'; s.step = 'imenu'; break;
-    case 'iadd': case 'again': s.step = 'iname'; break;
+    case 'iadd': s.pg = 0; s.grp = null; s.cats2 = null; s.step = 'icat'; break;
+    case 'again': s.step = 'iname'; break;
+    case 'noop': return;
+    case 'cat': s.cat = s.opts[Number(arg)]; s.cats2 = null; s.pg = 0; s.step = 'igrp'; break;
+    case 'grp': s.grp = s.opts[Number(arg)]; s.opts = itemsIn_(s.cat, s.grp); s.pg = 0; s.step = 'ipick'; break;
+    case 'igrpb': s.grp = null; s.pg = 0; s.step = 'igrp'; break;
+    case 'pg': s.pg = Number(arg) || 0; break;
+    case 'k': {
+      if (arg === 'b') s.d.buf = String(s.d.buf || '').slice(0, -1);
+      else if (arg === 'ok') {
+        const b = String(s.d.buf || ''); s.d.buf = '';
+        if (!b) { s.err = 'Tekan nombor dahulu.'; break; }
+        return onText_(ctx, b, s);
+      } else if (String(s.d.buf || '').length < 5) s.d.buf = String(s.d.buf || '') + arg;
+      break;
+    }
+    case 'ht': { const nm = s.d.fast[s.d.idx], v = getStok_(ctx.caw, nm); s.d.buf = ''; s.d.items.push({ name: nm, ref: v, act: v, batch: '', exp: '' }); s.d.idx++; s.step = s.d.idx >= s.d.fast.length ? 'pem' : 'hcount'; break; }
+    case 'hback': if (s.d.idx > 0) { s.d.idx--; const nm = s.d.fast[s.d.idx]; s.d.items = s.d.items.filter(x => x.name !== nm); } s.d.buf = ''; s.step = 'hcount'; break;
+    case 'ey': s.cur.ey = arg; s.step = 'iexm'; break;
+    case 'ebk': s.step = 'iexp'; break;
+    case 'em': setExp_(s, s.cur.ey + '-' + String(arg).padStart(2, '0')); break;
     case 'idone': s.step = 'pem'; break;
     case 'pk': pickUbat_(s, s.opts[Number(arg)]); break;
     case 'bskip': s.step = 'iexp'; break;
@@ -754,7 +814,7 @@ function onWiz_(ctx, cb, p) {
     case 'rj': s.d.rujuk = arg === 'N' ? '' : s.opts[Number(arg)]; s.step = 'imenu'; break;
     case 'pem': s.d.pem = s.opts[Number(arg)]; s.step = 'confirm'; break;
     case 'pemx': s.step = 'pemtxt'; break;
-    case 'hskip': s.d.idx++; s.step = s.d.idx >= s.d.fast.length ? 'pem' : 'hcount'; break;
+    case 'hskip': s.d.buf = ''; s.d.idx++; s.step = s.d.idx >= s.d.fast.length ? 'pem' : 'hcount'; break;
     case 'hdone': if (!s.d.items.length) { s.err = 'Kira sekurang-kurangnya satu item dahulu.'; break; } s.step = 'pem'; break;
   }
   if (s.step === 'imenu' && s.t === 'terima' && !s.d.status) s.step = 'status';
@@ -762,10 +822,12 @@ function onWiz_(ctx, cb, p) {
 }
 function onText_(ctx, text, s) {
   const t = text.trim().slice(0, 80), n = num_(t);
+  if (s.d) s.d.buf = '';
   switch (s.step) {
     case 'supplier': s.d.dari = t; s.step = 'dok'; break;
     case 'dok': s.d.dok = t; s.step = 'foto'; break;
-    case 'iname': {
+    case 'icat': case 'igrp': case 'ipick': case 'iname': {
+      s.grp = null; s.pg = 0;
       const c = searchUbat_(t, 6);
       if (!c.length) s.err = '"' + esc_(t) + '" tiada dalam senarai. Cuba ejaan lain atau kata kunci lebih pendek.';
       else if (c.length === 1) pickUbat_(s, c[0]);
@@ -779,12 +841,7 @@ function onText_(ctx, text, s) {
       if (s.t === 'terima') { if (s.d.status === 'TALLY') s.cur.ref = n; s.step = 'ibatch'; } else finishItem_(s);
       break;
     case 'ibatch': s.cur.batch = t; s.step = 'iexp'; break;
-    case 'iexp': {
-      const d = parseExp_(t), today = new Date(); today.setHours(0, 0, 0, 0);
-      if (d === undefined) { s.err = 'Format tarikh tidak sah. Guna 2027-05 atau 05/27.'; break; }
-      if (d < today) { s.err = esc_(s.cur.name) + ' sudah LUPUT (' + fmtD_(d) + '). Asingkan, jangan terima. Item tidak dimasukkan.'; s.cur = null; s.step = 'imenu'; break; }
-      s.cur.exp = t; finishItem_(s); break;
-    }
+    case 'iexp': setExp_(s, t); break;
     case 'qty': {
       if (isNaN(n) || n === 0) { s.err = 'Taip nombor bukan sifar, cth -5 atau +10.'; break; }
       const sys = getStok_(ctx.caw, s.d.ubat);

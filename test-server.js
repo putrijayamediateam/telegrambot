@@ -297,6 +297,43 @@ assert.strictEqual(t.sheets.Rekod.find(r => r[0] === 'KH-0002')[4], 'SELESAI');
 // /harian tanpa isi buka wizard; pemasa dipasang
 t.post(CH, '/harian'); assert(/Item 1 \/ 2/.test(wiz().p.text) || /Item 1 \/ 2/.test(last()), 'wizard dibuka');
 t.ctx.pasangPemasa(); assert.strictEqual(t.trig.length, 1);
+// ===== ALIRAN BUTANG PENUH (tanpa menaip nama/nombor) =====
+t = mk(); t.ctx.NOW_OVERRIDE = MY(14, 40);
+t.cbq(CH, 'm:terima', 1); let bm = 5000 + t.sent.length;
+t.cbq(CH, btn('HQ'), bm); t.post(CH, 'INV-5'); t.post(CH, '', { photo: [{ file_id: 'z' }] });
+t.cbq(CH, btn('Seterusnya'), bm); t.cbq(CH, btn('TALLY (semua'), bm);
+t.cbq(CH, btn('Tambah ubat'), bm);
+assert(/jenis ubat/i.test(wiz().p.text) && /TABLET/.test(JSON.stringify(wiz().p.reply_markup)), wiz().p.text);
+t.cbq(CH, btn('TABLET'), bm);
+assert(/pilih kumpulan/.test(wiz().p.text));
+t.cbq(CH, btn('X'), bm);
+assert(/Pilih ubat \(X\)/.test(wiz().p.text));
+t.cbq(CH, btn('Paracetamol Tab 500Mg'), bm);
+assert(/Kuantiti <b>FIZIKAL|FIZIKAL/.test(wiz().p.text) && /w:k:ok/.test(JSON.stringify(wiz().p.reply_markup)));
+t.cbq(CH, 'w:k:1', bm); t.cbq(CH, 'w:k:2', bm); t.cbq(CH, 'w:k:b', bm); t.cbq(CH, 'w:k:5', bm);
+assert(/<b>15<\/b>/.test(wiz().p.text), wiz().p.text);
+t.cbq(CH, 'w:k:ok', bm);                         // terus ke batch
+t.cbq(CH, btn('Langkau'), bm);                   // batch
+assert(/pilih tahun/.test(wiz().p.text));
+t.cbq(CH, 'w:ey:2028', bm); assert(/pilih bulan/.test(wiz().p.text));
+t.cbq(CH, 'w:em:3', bm);
+assert(/Paracetamol Tab 500Mg → 15 \| luput 2028-03/.test(wiz().p.text), wiz().p.text);
+t.cbq(CH, 'w:k:ok', bm); assert(/Tekan nombor dahulu|Selesai|Tambah ubat/.test(wiz().p.text));
+// luput bulan lepas melalui butang ditolak
+t.cbq(CH, btn('Tambah ubat'), bm); t.cbq(CH, btn('TABLET'), bm); t.cbq(CH, btn('X'), bm);
+t.cbq(CH, btn('Amoxicillin'), bm); t.cbq(CH, 'w:k:7', bm); t.cbq(CH, 'w:k:ok', bm); t.cbq(CH, btn('Langkau'), bm);
+t.cbq(CH, 'w:ey:' + new Date().getFullYear(), bm); t.cbq(CH, 'w:em:1', bm);
+assert(/LUPUT/.test(wiz().p.text), wiz().p.text);
+// kiraan harian melalui pad nombor + balik
+t = mk(); t.ctx.NOW_OVERRIDE = MY(14, 40);
+t.cbq(CH, 'm:harian', 1); let pm = 5000 + t.sent.length;
+t.cbq(CH, 'w:k:9', pm); t.cbq(CH, 'w:k:5', pm); t.cbq(CH, 'w:k:ok', pm);
+assert(/Item 2 \/ 2/.test(wiz().p.text), wiz().p.text);
+t.cbq(CH, btn('Balik'), pm); assert(/Item 1 \/ 2/.test(wiz().p.text) && /Dikira|_/.test(wiz().p.text));
+t.cbq(CH, 'w:k:9', pm); t.cbq(CH, 'w:k:5', pm); t.cbq(CH, 'w:k:ok', pm);
+t.cbq(CH, 'w:k:0', pm); t.cbq(CH, 'w:k:ok', pm);
+assert(/Checked by/.test(wiz().p.text) && /Dikira: 2 daripada 2/.test(wiz().p.text), wiz().p.text);
+
 // tiada fast moving -> mesej
 t = mk(); t.sheets.Ubat.slice(1).forEach(r => r[3] = '');
 t.post(CH, '/harian'); assert(/Belum ada item fast moving/.test(last()), last());
