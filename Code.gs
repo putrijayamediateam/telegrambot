@@ -141,7 +141,7 @@ function applyReceive_(id, caw, dari, lines, oleh) {
 function norm_(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9.\/% ]+/g, ' ').replace(/\s+/g, ' ').trim(); }
 function num_(s) { const m = String(s).match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : NaN; }
 let UBAT_CACHE = null;
-function ubatNames_() { if (!UBAT_CACHE) UBAT_CACHE = rows_(S.UBAT).map(r => String(r[0])).filter(Boolean); return UBAT_CACHE; }
+function ubatNames_() { return rows_(S.UBAT).map(r => String(r[0])).filter(Boolean); }
 function findUbat_(q) {
   const nq = norm_(q);
   if (!nq) return { err: 'nama kosong' };
